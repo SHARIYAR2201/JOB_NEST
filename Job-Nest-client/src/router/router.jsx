@@ -14,8 +14,7 @@ import AdminDashboard from "../pages/shared/Dashboard/Admindashboard.jsx";
 import BlogDetails from "../pages/shared/Navbar/Blog/BlogDetail.jsx";
 import JobDetails from "../pages/shared/Navbar/Jobs/JobDetails.jsx";
 import Apply from "../pages/shared/Navbar/Jobs/Apply.jsx";
-
-
+import SearchJobs from "../pages/Home/SearchJobs.jsx";
 
 
 
@@ -67,6 +66,10 @@ const router = createBrowserRouter([
         {
           path: "/admin_dashboard",
           Component: AdminDashboard
+        },
+        {
+          path: "/search-jobs",  // New route for SearchJobs
+          Component: SearchJobs // Link to SearchJobs component
         }
     ]    
   },

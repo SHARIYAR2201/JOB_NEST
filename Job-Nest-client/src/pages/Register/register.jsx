@@ -1,10 +1,13 @@
 import Lottie from "lottie-react";
-import React from "react";
+import React, { useState } from "react";
 import registerLottie from "../../assets/Lotties/register.json";
 
 const Register = () => {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
 
-  const handleRegister = (e) => {
+  const handleRegister = async (e) => {
     e.preventDefault();
     const form = e.target;
     const email = form.email.value;
@@ -12,8 +15,30 @@ const Register = () => {
     const fullName = form.name.value;
     const mobileNumber = form.phone.value;
     const role = form.role.value;
-    console.log("Registration Data:", { email, password, fullName, mobileNumber, role });
-  }
+
+    try {
+      setLoading(true);
+
+      const res = await fetch(`${process.env.REACT_APP_API_URL}/api/register`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ email, password, fullName, mobileNumber, role }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Registration failed!");
+
+      setSuccess("Registration successful! You can now login.");
+      form.reset();
+      setError("");
+    } catch (err) {
+      setError(err.message || "An error occurred during registration.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <div className="hero bg-base-200 min-h-screen">
@@ -53,7 +78,6 @@ const Register = () => {
               <select name="role" className="select select-bordered w-full" required>
                 <option value="" disabled selected>Select your role</option>
                 <option value="company">Company</option>
-                <option value="admin">Admin</option>
                 <option value="user">User</option>
               </select>
               
@@ -65,8 +89,14 @@ const Register = () => {
                 </label>
               </div>
               
+              {/* Error / Success Messages */}
+              {error && <div className="text-red-500 mt-2">{error}</div>}
+              {success && <div className="text-green-500 mt-2">{success}</div>}
+              
               {/* Submit Button */}
-              <button className="btn btn-neutral mt-4 w-full" type="submit">Register</button>
+              <button className="btn btn-neutral mt-4 w-full" type="submit" disabled={loading}>
+                {loading ? "Registering..." : "Register"}
+              </button>
               
               {/* Already have account */}
               <div className="text-center mt-4">
