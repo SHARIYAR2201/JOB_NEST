@@ -15,6 +15,7 @@ import Apply from "../pages/shared/Navbar/Jobs/Apply.jsx";
 import SearchJobs from "../pages/Home/SearchJobs.jsx";
 import CompanyDashboard from "../pages/shared/Dashboard/Companydashboard.jsx";
 import UserDashboard from "../pages/shared/Dashboard/Userdashboard.jsx";
+import UserProfile from "../pages/shared/JobSeeker/UserProfile.jsx";
 
 
 
@@ -76,9 +77,14 @@ const router = createBrowserRouter([
           Component: CompanyDashboard
         },
         {
-          path: "/search-jobs",  // New route for SearchJobs
-          Component: SearchJobs // Link to SearchJobs component
+          path: "/search-jobs",
+          Component: SearchJobs 
+        },
+        {
+          path: "/profile",
+          Component: UserProfile
         }
+
     ]    
   },
 ]);

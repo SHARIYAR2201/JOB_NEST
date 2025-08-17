@@ -218,6 +218,73 @@ async function run() {
       if (result.deletedCount === 0) return res.status(404).send({ error: "Job not found" });
       res.send({ ok: true });
     });
+    // Get one user by email (hide secrets)
+app.get('/api/users/by-email', async (req, res) => {
+  try {
+    const { email } = req.query;
+    if (!email) return res.status(400).send({ error: "email is required" });
+    const doc = await usersCollection.findOne(
+      { email: String(email).toLowerCase() },
+      { projection: { passwordHash: 0, passwordSalt: 0 } }
+    );
+    if (!doc) return res.status(404).send({ error: "User not found" });
+    res.send(doc);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send({ error: "Internal server error" });
+  }
+});
+
+// Update profile (common + role-specific)
+app.put('/api/users/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!ObjectId.isValid(id)) return res.status(400).send({ error: "Invalid id" });
+
+    const {
+      // common
+      fullName, mobileNumber, address, avatarUrl,
+      // jobseeker
+      headline, skills, resumeUrl,
+      // company
+      companyName, website, foundedYear, companySize, description
+    } = req.body || {};
+
+    const update = {
+      ...(fullName !== undefined && { fullName }),
+      ...(mobileNumber !== undefined && { mobileNumber }),
+      ...(address !== undefined && { address }),
+      ...(avatarUrl !== undefined && { avatarUrl }),
+
+      // jobseeker fields
+      ...(headline !== undefined && { headline }),
+      ...(skills !== undefined && { skills }),
+      ...(resumeUrl !== undefined && { resumeUrl }),
+
+      // company fields
+      ...(companyName !== undefined && { companyName }),
+      ...(website !== undefined && { website }),
+      ...(foundedYear !== undefined && { foundedYear }),
+      ...(companySize !== undefined && { companySize }),
+      ...(description !== undefined && { description }),
+
+      updatedAt: new Date()
+    };
+
+    const result = await usersCollection.findOneAndUpdate(
+      { _id: new ObjectId(id) },
+      { $set: update },
+      { returnDocument: 'after', projection: { passwordHash: 0, passwordSalt: 0 } }
+    );
+
+    if (!result.value) return res.status(404).send({ error: "User not found" });
+    res.send(result.value);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send({ error: "Internal server error" });
+  }
+});
+
     app.get('/api/users/role', async (req, res) => {
   try {
     const { email } = req.query;
