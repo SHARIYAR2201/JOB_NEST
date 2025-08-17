@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
+const crypto = require('crypto'); // ← use Node built-in
 require('dotenv').config();
 
 const app = express();
@@ -20,11 +21,38 @@ const client = new MongoClient(uri, {
   serverApi: { version: ServerApiVersion.v1, strict: true, deprecationErrors: true }
 });
 
+// ---- password helpers (scrypt) ----
+function hashPassword(password) {
+  return new Promise((resolve, reject) => {
+    const salt = crypto.randomBytes(16).toString('hex');
+    crypto.scrypt(password, salt, 64, (err, derivedKey) => {
+      if (err) return reject(err);
+      resolve({ salt, hash: derivedKey.toString('hex') });
+    });
+  });
+}
+
+// (for future login)
+// function verifyPassword(password, salt, storedHash) {
+//   return new Promise((resolve, reject) => {
+//     crypto.scrypt(password, salt, 64, (err, derivedKey) => {
+//       if (err) return reject(err);
+//       resolve(derivedKey.toString('hex') === storedHash);
+//     });
+//   });
+// }
+
 async function run() {
   try {
     await client.connect();
     const db = client.db("jobNestDB");
+
+    // collections
     const jobsCollection = db.collection("jobs");
+    const usersCollection = db.collection("users");
+
+    // Ensure unique email
+    await usersCollection.createIndex({ email: 1 }, { unique: true });
 
     console.log("✅ MongoDB Connected & Collections Ready");
 
@@ -33,7 +61,109 @@ async function run() {
     // health
     app.get('/', (_req, res) => res.send('Career Code API Running...'));
 
-    // Get all jobs (basic filtering & search optional)
+    // ======= USERS =======
+
+    // Create/Register user (uses scrypt, no bcrypt)
+    app.post('/api/register', async (req, res) => {
+      try {
+        const { email, password, fullName, mobileNumber, role } = req.body || {};
+
+        // Basic validations
+        if (!email || !password || !fullName || !mobileNumber || !role) {
+          return res.status(400).send({ error: "email, password, fullName, mobileNumber, role are required" });
+        }
+
+        const allowedRoles = ["jobseeker", "company", "admin"];
+        if (!allowedRoles.includes(role)) {
+          return res.status(400).send({ error: "role must be one of jobseeker, company, admin" });
+        }
+
+        if (password.length < 6) {
+          return res.status(400).send({ error: "Password must be at least 6 characters" });
+        }
+
+        // Duplicate email?
+        const emailLc = String(email).toLowerCase();
+        const exists = await usersCollection.findOne({ email: emailLc });
+        if (exists) {
+          return res.status(409).send({ error: "Email already registered" });
+        }
+
+        // Hash password with scrypt
+        const { salt, hash } = await hashPassword(password);
+
+        const doc = {
+          email: emailLc,
+          passwordHash: hash,
+          passwordSalt: salt,
+          fullName,
+          mobileNumber,
+          role,
+          isActive: true,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+
+        const result = await usersCollection.insertOne(doc);
+
+        // return sanitized user
+        const userSafe = {
+          _id: result.insertedId,
+          email: doc.email,
+          fullName: doc.fullName,
+          mobileNumber: doc.mobileNumber,
+          role: doc.role,
+          isActive: doc.isActive,
+          createdAt: doc.createdAt,
+        };
+
+        res.status(201).send(userSafe);
+      } catch (err) {
+        if (err?.code === 11000) {
+          return res.status(409).send({ error: "Email already registered" });
+        }
+        console.error("POST /api/register error:", err);
+        res.status(500).send({ error: "Internal server error" });
+      }
+    });
+
+    // Get users (optional role filter, pagination)
+    app.get('/api/users', async (req, res) => {
+      try {
+        const { role, page = 1, limit = 20 } = req.query;
+        const filter = {};
+        if (role) {
+          const allowedRoles = ["jobseeker", "company", "admin"];
+          if (!allowedRoles.includes(role)) {
+            return res.status(400).send({ error: "Invalid role filter" });
+          }
+          filter.role = role;
+        }
+
+        const pageNum = Math.max(parseInt(page, 10) || 1, 1);
+        const limitNum = Math.min(Math.max(parseInt(limit, 10) || 20, 1), 100);
+
+        const cursor = usersCollection
+          .find(filter)
+          .project({ passwordHash: 0, passwordSalt: 0 }) // hide secrets
+          .sort({ createdAt: -1 })
+          .skip((pageNum - 1) * limitNum)
+          .limit(limitNum);
+
+        const [items, total] = await Promise.all([
+          cursor.toArray(),
+          usersCollection.countDocuments(filter),
+        ]);
+
+        res.send({ total, page: pageNum, limit: limitNum, items });
+      } catch (err) {
+        console.error("GET /api/users error:", err);
+        res.status(500).send({ error: "Internal server error" });
+      }
+    });
+
+    // ======= JOBS (your existing routes) =======
+
     app.get('/api/jobs', async (req, res) => {
       const { q, status } = req.query;
       const filter = {};
@@ -47,7 +177,6 @@ async function run() {
       res.send(jobs);
     });
 
-    // Get job by ID
     app.get('/api/jobs/:id', async (req, res) => {
       const { id } = req.params;
       if (!ObjectId.isValid(id)) return res.status(400).send({ error: "Invalid id" });
@@ -56,7 +185,6 @@ async function run() {
       res.send(job);
     });
 
-    // Create job
     app.post('/api/jobs', async (req, res) => {
       const { title, company, status = 'Active', ...rest } = req.body || {};
       if (!title || !company) return res.status(400).send({ error: "title and company are required" });
@@ -66,7 +194,6 @@ async function run() {
       res.status(201).send({ _id: result.insertedId, ...doc });
     });
 
-    // Update job
     app.put('/api/jobs/:id', async (req, res) => {
       const { id } = req.params;
       if (!ObjectId.isValid(id)) return res.status(400).send({ error: "Invalid id" });
@@ -83,7 +210,6 @@ async function run() {
       res.send(result.value);
     });
 
-    // Delete job
     app.delete('/api/jobs/:id', async (req, res) => {
       const { id } = req.params;
       if (!ObjectId.isValid(id)) return res.status(400).send({ error: "Invalid id" });
@@ -92,6 +218,23 @@ async function run() {
       if (result.deletedCount === 0) return res.status(404).send({ error: "Job not found" });
       res.send({ ok: true });
     });
+    app.get('/api/users/role', async (req, res) => {
+  try {
+    const { email } = req.query;
+    if (!email) return res.status(400).send({ error: "email is required" });
+
+    const user = await usersCollection.findOne(
+      { email: String(email).toLowerCase() },
+      { projection: { role: 1 } }
+    );
+
+    if (!user) return res.status(404).send({ error: "User not found" });
+    res.send({ role: user.role });
+  } catch (err) {
+    console.error("GET /api/users/role error:", err);
+    res.status(500).send({ error: "Internal server error" });
+  }
+});
   } catch (err) {
     console.error(err);
   }

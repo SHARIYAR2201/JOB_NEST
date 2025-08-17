@@ -1,6 +1,4 @@
-import {
-  createBrowserRouter,
-} from "react-router";
+import {createBrowserRouter,} from "react-router";
 
 import RootLayout from '../layout/RootLayout.jsx';
 import Home from '../pages/Home/Home.jsx';
@@ -15,6 +13,8 @@ import BlogDetails from "../pages/shared/Navbar/Blog/BlogDetail.jsx";
 import JobDetails from "../pages/shared/Navbar/Jobs/JobDetails.jsx";
 import Apply from "../pages/shared/Navbar/Jobs/Apply.jsx";
 import SearchJobs from "../pages/Home/SearchJobs.jsx";
+import CompanyDashboard from "../pages/shared/Dashboard/Companydashboard.jsx";
+import UserDashboard from "../pages/shared/Dashboard/Userdashboard.jsx";
 
 
 
@@ -66,6 +66,14 @@ const router = createBrowserRouter([
         {
           path: "/admin_dashboard",
           Component: AdminDashboard
+        },
+        {
+          path: "/user_dashboard",
+          Component: UserDashboard
+        },
+        {
+          path: "/company_dashboard",
+          Component: CompanyDashboard
         },
         {
           path: "/search-jobs",  // New route for SearchJobs
