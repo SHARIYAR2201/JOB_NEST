@@ -6,6 +6,36 @@ require('dotenv').config();
 
 const app = express();
 const port = process.env.PORT || 3000;
+const path = require('path');
+const fs = require('fs');
+const multer = require('multer');
+
+// ensure uploads dir exists
+const uploadsDir = path.join(process.cwd(), 'uploads');
+const resumesDir = path.join(uploadsDir, 'resumes');
+if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir);
+if (!fs.existsSync(resumesDir)) fs.mkdirSync(resumesDir);
+
+// static serving for uploaded files
+app.use('/uploads', express.static(uploadsDir));
+
+// Multer storage (PDFs only)
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, resumesDir),
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname) || '.pdf';
+    const safeId = (req.params.id || 'unknown').toString();
+    cb(null, `${safeId}-${Date.now()}${ext}`);
+  }
+});
+const upload = multer({
+  storage,
+  fileFilter: (_req, file, cb) => {
+    if (file.mimetype === 'application/pdf') cb(null, true);
+    else cb(new Error('Only PDF files are allowed'));
+  },
+  limits: { fileSize: 10 * 1024 * 1024 } // 10MB
+});
 
 // ---- middleware ----
 app.use(cors({
@@ -218,7 +248,7 @@ async function run() {
       if (result.deletedCount === 0) return res.status(404).send({ error: "Job not found" });
       res.send({ ok: true });
     });
-    // Get one user by email (hide secrets)
+// Get one user by email (hide secrets)
 app.get('/api/users/by-email', async (req, res) => {
   try {
     const { email } = req.query;
@@ -235,7 +265,7 @@ app.get('/api/users/by-email', async (req, res) => {
   }
 });
 
-// Update profile (common + role-specific)
+// Update profile (common + role-specific + resume links)
 app.put('/api/users/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -244,8 +274,10 @@ app.put('/api/users/:id', async (req, res) => {
     const {
       // common
       fullName, mobileNumber, address, avatarUrl,
+      // external resume
+      resumeUrl, resumeFileUrl,
       // jobseeker
-      headline, skills, resumeUrl,
+      headline, skills,
       // company
       companyName, website, foundedYear, companySize, description
     } = req.body || {};
@@ -255,13 +287,12 @@ app.put('/api/users/:id', async (req, res) => {
       ...(mobileNumber !== undefined && { mobileNumber }),
       ...(address !== undefined && { address }),
       ...(avatarUrl !== undefined && { avatarUrl }),
+      ...(resumeUrl !== undefined && { resumeUrl }),
+      ...(resumeFileUrl !== undefined && { resumeFileUrl }),
 
-      // jobseeker fields
       ...(headline !== undefined && { headline }),
       ...(skills !== undefined && { skills }),
-      ...(resumeUrl !== undefined && { resumeUrl }),
 
-      // company fields
       ...(companyName !== undefined && { companyName }),
       ...(website !== undefined && { website }),
       ...(foundedYear !== undefined && { foundedYear }),
@@ -284,6 +315,72 @@ app.put('/api/users/:id', async (req, res) => {
     res.status(500).send({ error: "Internal server error" });
   }
 });
+// GET one user by ObjectId (hide secrets)
+app.get('/api/users/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).send({ error: "Invalid id" });
+    }
+    const doc = await usersCollection.findOne(
+      { _id: new ObjectId(id) },
+      { projection: { passwordHash: 0, passwordSalt: 0 } }
+    );
+    if (!doc) return res.status(404).send({ error: "User not found" });
+    res.send(doc);
+  } catch (e) {
+    console.error("GET /api/users/:id error:", e);
+    res.status(500).send({ error: "Internal server error" });
+  }
+});
+
+// Upload resume (PDF). Field name: "resume"
+app.post('/api/users/:id/resume', upload.single('resume'), async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!ObjectId.isValid(id)) return res.status(400).send({ error: "Invalid id" });
+    if (!req.file) return res.status(400).send({ error: "No file uploaded" });
+
+    // public URL for the uploaded file
+    const publicUrl = `${req.protocol}://${req.get('host')}/uploads/resumes/${req.file.filename}`;
+
+    const result = await usersCollection.findOneAndUpdate(
+      { _id: new ObjectId(id) },
+      { $set: { resumeFileUrl: publicUrl, updatedAt: new Date() } },
+      { returnDocument: 'after', projection: { passwordHash: 0, passwordSalt: 0 } }
+    );
+
+    if (!result.value) return res.status(404).send({ error: "User not found" });
+
+    res.status(201).send({
+      message: "Resume uploaded",
+      resumeFileUrl: publicUrl,
+      user: result.value
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).send({ error: e.message || "Internal server error" });
+  }
+});
+
+// Optional: direct download endpoint (redirects to static file)
+app.get('/api/users/:id/resume', async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!ObjectId.isValid(id)) return res.status(400).send({ error: "Invalid id" });
+    const user = await usersCollection.findOne(
+      { _id: new ObjectId(id) },
+      { projection: { resumeFileUrl: 1 } }
+    );
+    if (!user?.resumeFileUrl) return res.status(404).send({ error: "No resume uploaded" });
+    // Just redirect to the static URL
+    res.redirect(user.resumeFileUrl);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send({ error: "Internal server error" });
+  }
+});
+
 
     app.get('/api/users/role', async (req, res) => {
   try {

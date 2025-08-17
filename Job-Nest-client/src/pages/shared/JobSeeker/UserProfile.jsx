@@ -1,5 +1,5 @@
 import React, { useContext, useEffect, useMemo, useState } from "react";
-import { AuthContext } from "../../../contexts/AuthContext/AuthContext";
+import { AuthContext } from "../../../contexts/AuthContext/AuthContext"; // adjust path
 
 const BACKEND_URL = "http://localhost:3000";
 
@@ -10,35 +10,88 @@ const EMPTY = {
   mobileNumber: "",
   email: "",
   address: "",
-  role: "", // "jobseeker" | "company" | "admin"
+  role: "",
   avatarUrl: "",
   // jobseeker-only
   headline: "",
-  skills: "",        // comma separated
+  skills: "",
   resumeUrl: "",
+  resumeFileUrl: "",
   // company-only
   companyName: "",
   website: "",
   foundedYear: "",
-  companySize: "",   // e.g. "1-10", "11-50"
-  description: ""
+  companySize: "",
+  description: "",
 };
 
 const UserProfile = () => {
-  const { user } = useContext(AuthContext); // Firebase user
+  const { user } = useContext(AuthContext);
   const email = useMemo(() => user?.email || "", [user?.email]);
 
   const [profile, setProfile] = useState(EMPTY);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [uploadingResume, setUploadingResume] = useState(false);
+  const [resumeFile, setResumeFile] = useState(null);
+
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  // Load full user doc (by email)
+  // ---------- helpers ----------
+  const safeJson = async (res) => {
+    // do not throw on invalid json
+    try {
+      const text = await res.text();
+      return text ? JSON.parse(text) : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const validateUrls = () => {
+    if (profile.avatarUrl && !/^https?:\/\/.+/i.test(profile.avatarUrl)) {
+      return "Please provide a valid image URL (http/https).";
+    }
+    if (profile.resumeUrl && !/^https?:\/\/.+/i.test(profile.resumeUrl)) {
+      return "Please provide a valid resume URL (http/https).";
+    }
+    if (profile.role === "company" && profile.website) {
+      if (!/^https?:\/\/.+/i.test(profile.website)) {
+        return "Please provide a valid website URL (http/https).";
+      }
+    }
+    return "";
+  };
+
+  const buildPayload = () => {
+    const payload = {
+      fullName: profile.fullName,
+      mobileNumber: profile.mobileNumber,
+      address: profile.address,
+      avatarUrl: profile.avatarUrl,
+      resumeUrl: profile.resumeUrl,
+      resumeFileUrl: profile.resumeFileUrl,
+    };
+    if (profile.role === "jobseeker") {
+      payload.headline = profile.headline;
+      payload.skills = profile.skills;
+    }
+    if (profile.role === "company") {
+      payload.companyName = profile.companyName;
+      payload.website = profile.website;
+      payload.foundedYear = profile.foundedYear;
+      payload.companySize = profile.companySize;
+      payload.description = profile.description;
+    }
+    return payload;
+  };
+
+  // ---------- load profile ----------
   useEffect(() => {
     let ignore = false;
 
-    const load = async () => {
+    const loadProfile = async () => {
       if (!email) {
         setLoading(false);
         setError("You must be logged in to view your profile.");
@@ -46,19 +99,23 @@ const UserProfile = () => {
       }
       setLoading(true);
       setError("");
+      setSuccess("");
 
       try {
-        // Prefer focused endpoint
-        const r = await fetch(`${BACKEND_URL}/api/users/by-email?email=${encodeURIComponent(email)}`);
+        const r = await fetch(
+          `${BACKEND_URL}/api/users/by-email?email=${encodeURIComponent(email)}`
+        );
         if (r.ok) {
           const doc = await r.json();
           if (!ignore) setProfile({ ...EMPTY, ...doc });
         } else {
-          // Fallback: list and find
+          // fallback: list and find
           const rf = await fetch(`${BACKEND_URL}/api/users?limit=200`);
           const data = await rf.json();
           if (rf.ok && Array.isArray(data.items)) {
-            const found = data.items.find(u => String(u.email).toLowerCase() === email.toLowerCase());
+            const found = data.items.find(
+              (u) => String(u.email).toLowerCase() === email.toLowerCase()
+            );
             if (!ignore) setProfile({ ...EMPTY, ...found });
           } else if (!ignore) {
             setError("Could not load profile.");
@@ -71,13 +128,16 @@ const UserProfile = () => {
       }
     };
 
-    load();
-    return () => { ignore = true; };
+    loadProfile();
+    return () => {
+      ignore = true;
+    };
   }, [email]);
 
+  // ---------- form handlers ----------
   const onChange = (e) => {
     const { name, value } = e.target;
-    setProfile(p => ({ ...p, [name]: value }));
+    setProfile((p) => ({ ...p, [name]: value }));
   };
 
   const saveProfile = async (e) => {
@@ -85,64 +145,126 @@ const UserProfile = () => {
     setError("");
     setSuccess("");
 
-    if (!profile?._id) {
-      setError("User document not found.");
-      return;
-    }
-    if (profile.avatarUrl && !/^https?:\/\/.+/i.test(profile.avatarUrl)) {
-      setError("Please provide a valid image URL (http/https).");
-      return;
-    }
-    if (profile.resumeUrl && !/^https?:\/\/.+/i.test(profile.resumeUrl)) {
-      setError("Please provide a valid resume URL (http/https).");
-      return;
-    }
-    if (profile.website && !/^https?:\/\/.+/i.test(profile.website)) {
-      setError("Please provide a valid website URL (http/https).");
+    if (!profile?._id && !profile?.email) {
+      setError("Update failed. Please reload and try again.");
       return;
     }
 
-    // Build minimal update payload (only fields that can be edited here)
-    const payload = {
-      fullName: profile.fullName,
-      mobileNumber: profile.mobileNumber,
-      address: profile.address,
-      avatarUrl: profile.avatarUrl,
-    };
-
-    if (profile.role === "jobseeker") {
-      payload.headline = profile.headline;
-      payload.skills = profile.skills;
-      payload.resumeUrl = profile.resumeUrl;
+    const urlError = validateUrls();
+    if (urlError) {
+      setError(urlError);
+      return;
     }
 
-    if (profile.role === "company") {
-      payload.companyName = profile.companyName;
-      payload.website = profile.website;
-      payload.foundedYear = profile.foundedYear;
-      payload.companySize = profile.companySize;
-      payload.description = profile.description;
-    }
+    const payload = buildPayload();
 
-    try {
-      setSaving(true);
+    const updateById = async () => {
       const res = await fetch(`${BACKEND_URL}/api/users/${profile._id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "Failed to save profile");
+      const data = await safeJson(res);
+      return { ok: res.ok, status: res.status, data };
+    };
 
-      setProfile(p => ({ ...p, ...data }));
-      setSuccess("Profile updated successfully.");
+    const updateByEmail = async () => {
+      const res = await fetch(
+        `${BACKEND_URL}/api/users/by-email?email=${encodeURIComponent(
+          profile.email
+        )}`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        }
+      );
+      const data = await safeJson(res);
+      return { ok: res.ok, status: res.status, data };
+    };
+
+    try {
+      setSaving(true);
+
+      let result = null;
+
+      // Try by id first if available; if ANY non-2xx, fall back to by-email
+      if (profile._id) {
+        result = await updateById();
+        if (!result.ok) {
+          // fall back silently
+          result = await updateByEmail();
+        }
+      } else {
+        result = await updateByEmail();
+      }
+
+      if (!result.ok) {
+        console.error("Update failed:", result.status, result.data);
+        // setError("Update failed. Please try again.");
+        return;
+      }
+
+      // success path
+      const updated = result.data && typeof result.data === "object" ? result.data : {};
+      setProfile((p) => ({ ...p, ...updated }));
+      setSuccess("Updated Successfully");
+      setError("");
     } catch (err) {
-      setError(err.message || "Failed to save profile.");
+      console.error("Update error:", err);
+    //   setError("Update failed. Please try again.");
     } finally {
       setSaving(false);
     }
   };
 
+  const uploadResume = async () => {
+    setError("");
+    setSuccess("");
+
+    if (!profile?._id) {
+      setError("Please reload your profile before uploading.");
+      return;
+    }
+    if (!resumeFile) {
+      setError("Please choose a PDF file first.");
+      return;
+    }
+    if (resumeFile.type !== "application/pdf") {
+      setError("Resume must be a PDF file.");
+      return;
+    }
+
+    try {
+      setUploadingResume(true);
+      const form = new FormData();
+      form.append("resume", resumeFile);
+
+      const res = await fetch(
+        `${BACKEND_URL}/api/users/${profile._id}/resume`,
+        { method: "POST", body: form }
+      );
+      const data = await safeJson(res);
+
+      if (!res.ok) {
+        console.error("Resume upload failed:", res.status, data);
+        setError("Resume upload failed. Please try again.");
+        return;
+      }
+
+      setProfile((p) => ({ ...p, resumeFileUrl: data?.resumeFileUrl || p.resumeFileUrl }));
+      setSuccess("Updated Successfully");
+      setResumeFile(null);
+      setError("");
+    } catch (err) {
+      console.error("Resume upload error:", err);
+      setError("Resume upload failed. Please try again.");
+    } finally {
+      setUploadingResume(false);
+    }
+  };
+
+  // ---------- render ----------
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -160,7 +282,7 @@ const UserProfile = () => {
             <div className="card-body">
               <h2 className="card-title text-2xl">Your Profile</h2>
 
-              <form className="space-y-4" onSubmit={saveProfile}>
+              <form className="space-y-4" onSubmit={saveProfile} noValidate>
                 {/* Common fields */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
@@ -223,7 +345,7 @@ const UserProfile = () => {
                   </div>
                 </div>
 
-                {/* Role-specific: Jobseeker */}
+                {/* Jobseeker fields */}
                 {profile.role === "jobseeker" && (
                   <div className="mt-4 border-t pt-4">
                     <h3 className="text-lg font-semibold mb-2">Jobseeker Details</h3>
@@ -251,7 +373,7 @@ const UserProfile = () => {
                         />
                       </div>
                       <div className="md:col-span-2">
-                        <label className="label">Resume URL</label>
+                        <label className="label">Resume URL (optional)</label>
                         <input
                           name="resumeUrl"
                           type="url"
@@ -265,7 +387,7 @@ const UserProfile = () => {
                   </div>
                 )}
 
-                {/* Role-specific: Company */}
+                {/* Company fields */}
                 {profile.role === "company" && (
                   <div className="mt-4 border-t pt-4">
                     <h3 className="text-lg font-semibold mb-2">Company Details</h3>
@@ -329,14 +451,47 @@ const UserProfile = () => {
                   </div>
                 )}
 
-                {/* Messages */}
-                {error && <div className="text-red-500">{error}</div>}
+                {/* messages */}
+                {error && !success && <div className="text-red-500">{error}</div>}
                 {success && <div className="text-green-600">{success}</div>}
 
                 <button type="submit" className="btn btn-primary" disabled={saving}>
                   {saving ? "Saving..." : "Save Changes"}
                 </button>
               </form>
+
+              {/* Resume upload */}
+              <div className="mt-8 border-t pt-4">
+                <h3 className="text-lg font-semibold mb-2">Resume (PDF)</h3>
+                <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
+                  <input
+                    type="file"
+                    accept="application/pdf"
+                    onChange={(e) => setResumeFile(e.target.files?.[0] || null)}
+                    className="file-input file-input-bordered"
+                  />
+                  <button
+                    onClick={uploadResume}
+                    className="btn btn-outline"
+                    disabled={uploadingResume || !resumeFile}
+                  >
+                    {uploadingResume ? "Uploading..." : "Upload PDF"}
+                  </button>
+                  {(profile.resumeFileUrl || profile.resumeUrl) && (
+                    <a
+                      className="btn btn-success"
+                      href={profile.resumeFileUrl || profile.resumeUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Download Resume
+                    </a>
+                  )}
+                </div>
+                <p className="text-xs text-base-content/60 mt-2">
+                  You can paste a public link (Resume URL) or upload a PDF here.
+                </p>
+              </div>
             </div>
           </div>
         </div>
@@ -357,7 +512,9 @@ const UserProfile = () => {
                     }
                     alt="avatar"
                     className="object-cover w-40 h-40"
-                    onError={(e) => { e.currentTarget.src = "https://i.ibb.co/Kb0Zf1w/avatar-placeholder.png"; }}
+                    onError={(e) => {
+                      e.currentTarget.src = "https://i.ibb.co/Kb0Zf1w/avatar-placeholder.png";
+                    }}
                   />
                 </div>
               </div>
