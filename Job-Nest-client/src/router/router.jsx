@@ -16,6 +16,7 @@ import SearchJobs from "../pages/Home/SearchJobs.jsx";
 import CompanyDashboard from "../pages/shared/Dashboard/Companydashboard.jsx";
 import UserDashboard from "../pages/shared/Dashboard/Userdashboard.jsx";
 import UserProfile from "../pages/shared/JobSeeker/UserProfile.jsx";
+import Dashboard from "../pages/shared/Dashboard/Dashboard.jsx";
 
 
 
@@ -67,6 +68,10 @@ const router = createBrowserRouter([
         {
           path: "/admin_dashboard",
           Component: AdminDashboard
+        },
+        {
+          path: "/dashboard",
+          Component: Dashboard
         },
         {
           path: "/user_dashboard",

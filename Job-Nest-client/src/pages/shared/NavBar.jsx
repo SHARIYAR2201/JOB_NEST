@@ -19,8 +19,10 @@ const getDashboardPath = (role) => {
 };
 
 const NavBar = () => {
-  const { user, logOut } = useContext(AuthContext); // firebase user + logout from context
+  const { user, logOut } = useContext(AuthContext); // firebase user + logout
   const [role, setRole] = useState(null);
+  const [avatarUrl, setAvatarUrl] = useState(null);
+  const [displayName, setDisplayName] = useState("");
 
   useEffect(() => {
     let ignore = false;
@@ -40,18 +42,57 @@ const NavBar = () => {
       }
     };
 
+    const fetchProfile = async (email) => {
+      try {
+        const res = await fetch(
+          `${BACKEND_URL}/api/users/by-email?email=${encodeURIComponent(email)}`
+        );
+        if (!res.ok) {
+          if (!ignore) {
+            // fallback to Firebase fields only
+            setAvatarUrl(user?.photoURL || null);
+            setDisplayName(user?.displayName || "");
+          }
+          return;
+        }
+        const data = await res.json();
+        if (!ignore) {
+          setAvatarUrl(
+            (user?.photoURL && user.photoURL.trim()) ||
+              (data?.avatarUrl && data.avatarUrl.trim()) ||
+              null
+          );
+          setDisplayName(
+            (data?.fullName && String(data.fullName)) ||
+              user?.displayName ||
+              ""
+          );
+        }
+      } catch {
+        if (!ignore) {
+          setAvatarUrl(user?.photoURL || null);
+          setDisplayName(user?.displayName || "");
+        }
+      }
+    };
+
     if (user?.email) {
       fetchRole(user.email);
+      fetchProfile(user.email);
     } else {
       setRole(null);
+      setAvatarUrl(null);
+      setDisplayName("");
     }
 
     return () => {
       ignore = true;
     };
-  }, [user?.email]);
+  }, [user?.email, user?.photoURL, user?.displayName]);
 
   const dashPath = getDashboardPath(role);
+  const avatarFallback =
+    "https://i.ibb.co/Kb0Zf1w/avatar-placeholder.png"; // nice neutral placeholder
 
   return (
     <div className="navbar bg-base-100 shadow-sm">
@@ -84,6 +125,7 @@ const NavBar = () => {
             <li><Link to="/companies">Companies</Link></li>
             <li><Link to="/about">About</Link></li>
             {user && <li><Link to={dashPath}>Dashboard</Link></li>}
+            {user && <li><Link to="/profile">Profile</Link></li>}
           </ul>
         </div>
         <Link to="/" className="btn btn-ghost text-xl">JOB-NEST</Link>
@@ -102,7 +144,7 @@ const NavBar = () => {
       </div>
 
       {/* Right side */}
-      <div className="navbar-end">
+      <div className="navbar-end gap-2">
         {!user ? (
           <>
             <Link to="/login" className="btn btn-primary">Login</Link>
@@ -110,7 +152,23 @@ const NavBar = () => {
           </>
         ) : (
           <>
-            <button onClick={logOut} className="btn btn-error ml-2">Logout</button>
+            {/* Avatar -> /profile */}
+            <Link
+              to="/profile"
+              className="btn btn-ghost btn-circle avatar"
+              title={displayName || user.email}
+            >
+              <div className="w-10 rounded-full overflow-hidden ring ring-base-200">
+                <img
+                  src={avatarUrl || avatarFallback}
+                  alt="User avatar"
+                  onError={(e) => {
+                    e.currentTarget.src = avatarFallback;
+                  }}
+                />
+              </div>
+            </Link>
+            <button onClick={logOut} className="btn btn-error">Logout</button>
           </>
         )}
       </div>
