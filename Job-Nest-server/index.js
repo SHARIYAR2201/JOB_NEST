@@ -62,8 +62,6 @@ function hashPassword(password) {
 // remove a local file if it exists
 function tryDeleteLocalFile(publicUrl) {
   try {
-    // we only delete files served from our /uploads path
-    // e.g. http://localhost:3000/uploads/resumes/<file>
     const uploadsPrefix = '/uploads/';
     const idx = publicUrl.indexOf(uploadsPrefix);
     if (idx === -1) return;
@@ -85,8 +83,12 @@ async function run() {
 
   const jobsCollection = db.collection('jobs');
   const usersCollection = db.collection('users');
+  const blogsCollection = db.collection('blogs'); // ← blogs
 
+  // indexes (NO text indexes in strict mode)
   await usersCollection.createIndex({ email: 1 }, { unique: true });
+  await blogsCollection.createIndex({ title: 1 }); // simple index
+  await blogsCollection.createIndex({ tags: 1 });  // simple index
 
   console.log('✅ MongoDB Connected & Collections Ready');
 
@@ -179,7 +181,7 @@ async function run() {
     }
   });
 
-  // Specific-first: role lookup
+  // Role lookup
   app.get('/api/users/role', async (req, res) => {
     try {
       const { email } = req.query;
@@ -319,7 +321,7 @@ async function run() {
     }
   });
 
-  // NEW: Save/replace generated resume (JSON stored in DB)
+  // Save/replace generated resume (JSON stored in DB)
   app.put('/api/users/:id/resume-generated', async (req, res) => {
     try {
       const { id } = req.params;
@@ -334,7 +336,6 @@ async function run() {
       const update = { generatedResume, updatedAt: new Date() };
 
       if (replaceExisting) {
-        // delete old uploaded pdf if exists
         if (user.resumeFileUrl) {
           tryDeleteLocalFile(user.resumeFileUrl);
         }
@@ -414,6 +415,130 @@ async function run() {
     const result = await jobsCollection.deleteOne({ _id: new ObjectId(id) });
     if (result.deletedCount === 0) return res.status(404).send({ error: 'Job not found' });
     res.send({ ok: true });
+  });
+
+  // ---------- BLOGS (NO text index; regex search) ----------
+  // List blogs (search + filter + pagination)
+  app.get('/api/blogs', async (req, res) => {
+    try {
+      const { q = '', tag = '', page = 1, limit = 9 } = req.query;
+      const pageNum = Math.max(parseInt(page, 10) || 1, 1);
+      const limitNum = Math.min(Math.max(parseInt(limit, 10) || 9, 1), 50);
+
+      const filter = {};
+      const ors = [];
+
+      if (q) {
+        ors.push({ title:   { $regex: q, $options: 'i' } });
+        ors.push({ content: { $regex: q, $options: 'i' } });
+        // for array of tags, we use elemMatch with regex
+        ors.push({ tags: { $elemMatch: { $regex: q, $options: 'i' } } });
+      }
+      if (ors.length) filter.$or = ors;
+
+      if (tag) {
+        filter.tags = { $elemMatch: { $regex: tag, $options: 'i' } };
+      }
+
+      const cursor = blogsCollection
+        .find(filter)
+        .sort({ createdAt: -1 })
+        .skip((pageNum - 1) * limitNum)
+        .limit(limitNum);
+
+      const [items, total] = await Promise.all([
+        cursor.toArray(),
+        blogsCollection.countDocuments(filter),
+      ]);
+
+      res.send({ items, total, page: pageNum, limit: limitNum });
+    } catch (e) {
+      console.error('GET /api/blogs error:', e);
+      res.status(500).send({ error: 'Internal server error' });
+    }
+  });
+
+  // Get one blog
+  app.get('/api/blogs/:id', async (req, res) => {
+    try {
+      const { id } = req.params;
+      if (!ObjectId.isValid(id)) return res.status(400).send({ error: 'Invalid id' });
+      const blog = await blogsCollection.findOne({ _id: new ObjectId(id) });
+      if (!blog) return res.status(404).send({ error: 'Blog not found' });
+      res.send(blog);
+    } catch (e) {
+      console.error('GET /api/blogs/:id error:', e);
+      res.status(500).send({ error: 'Internal server error' });
+    }
+  });
+
+  // Create blog (admin creates from UI; public visibility)
+  app.post('/api/blogs', async (req, res) => {
+    try {
+      const { title, content = '', coverImageUrl = '', tags = [], author = {} } = req.body || {};
+      if (!title) return res.status(400).send({ error: 'title is required' });
+
+      const doc = {
+        title,
+        content, // store as plain text
+        coverImageUrl,
+        tags: Array.isArray(tags) ? tags : [],
+        author: {
+          name: author?.name || 'Admin',
+          email: author?.email || '',
+        },
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      const result = await blogsCollection.insertOne(doc);
+      res.status(201).send({ _id: result.insertedId, ...doc });
+    } catch (e) {
+      console.error('POST /api/blogs error:', e);
+      res.status(500).send({ error: 'Internal server error' });
+    }
+  });
+
+  // Update blog
+  app.put('/api/blogs/:id', async (req, res) => {
+    try {
+      const { id } = req.params;
+      if (!ObjectId.isValid(id)) return res.status(400).send({ error: 'Invalid id' });
+
+      const { title, content, coverImageUrl, tags } = req.body || {};
+      const update = {
+        ...(title !== undefined && { title }),
+        ...(content !== undefined && { content }),
+        ...(coverImageUrl !== undefined && { coverImageUrl }),
+        ...(tags !== undefined && { tags: Array.isArray(tags) ? tags : [] }),
+        updatedAt: new Date(),
+      };
+
+      const result = await blogsCollection.findOneAndUpdate(
+        { _id: new ObjectId(id) },
+        { $set: update },
+        { returnDocument: 'after' }
+      );
+      if (!result.value) return res.status(404).send({ error: 'Blog not found' });
+      res.send(result.value);
+    } catch (e) {
+      console.error('PUT /api/blogs/:id error:', e);
+      res.status(500).send({ error: 'Internal server error' });
+    }
+  });
+
+  // Delete blog
+  app.delete('/api/blogs/:id', async (req, res) => {
+    try {
+      const { id } = req.params;
+      if (!ObjectId.isValid(id)) return res.status(400).send({ error: 'Invalid id' });
+      const result = await blogsCollection.deleteOne({ _id: new ObjectId(id) });
+      if (result.deletedCount === 0) return res.status(404).send({ error: 'Blog not found' });
+      res.send({ ok: true });
+    } catch (e) {
+      console.error('DELETE /api/blogs/:id error:', e);
+      res.status(500).send({ error: 'Internal server error' });
+    }
   });
 }
 

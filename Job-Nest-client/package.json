@@ -12,6 +12,7 @@
   "dependencies": {
     "@tailwindcss/vite": "^4.1.11",
     "bcrypt": "^6.0.0",
+    "dompurify": "^3.2.6",
     "firebase": "^12.1.0",
     "framer-motion": "^12.23.12",
     "lottie-react": "^2.4.1",

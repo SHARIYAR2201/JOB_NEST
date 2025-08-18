@@ -9,7 +9,7 @@ import Login from "../pages/shared/Login.jsx";
 import Jobs from "../pages/shared/Navbar/Jobs/Jobs.jsx";
 import About from "../pages/shared/Navbar/About.jsx";
 import AdminDashboard from "../pages/shared/Dashboard/Admindashboard.jsx";
-import BlogDetails from "../pages/shared/Navbar/Blog/BlogDetail.jsx";
+
 import JobDetails from "../pages/shared/Navbar/Jobs/JobDetails.jsx";
 import Apply from "../pages/shared/Navbar/Jobs/Apply.jsx";
 import SearchJobs from "../pages/Home/SearchJobs.jsx";
@@ -18,6 +18,7 @@ import UserDashboard from "../pages/shared/Dashboard/Userdashboard.jsx";
 import UserProfile from "../pages/shared/JobSeeker/UserProfile.jsx";
 import Dashboard from "../pages/shared/Dashboard/Dashboard.jsx";
 import ResumeBuilder from "../pages/shared/Navbar/ResumeBuilder.jsx";
+import BlogDetails from "../pages/shared/Navbar/Blog/BlogDetail.jsx";
 
 
 
@@ -39,8 +40,8 @@ const router = createBrowserRouter([
           Component: Blog
         },
         {
-          path: "/blogs/:slug",
-          Component: BlogDetails
+          path: "/blogs/:id",   // 👈 dynamic id param
+          Component: BlogDetails,
         },
         {
           path: "/companies",
