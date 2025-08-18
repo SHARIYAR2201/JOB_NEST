@@ -1,25 +1,21 @@
+// src/components/shared/NavBar.jsx
 import React, { useContext, useEffect, useState } from "react";
 import { Link } from "react-router";
 import { AuthContext } from "../../contexts/AuthContext/AuthContext";
 
 const BACKEND_URL = "http://localhost:3000";
 
-// map role to dashboard path
 const getDashboardPath = (role) => {
   switch ((role || "").toLowerCase()) {
-    case "admin":
-      return "/admin_dashboard";
-    case "company":
-      return "/company_dashboard";
-    case "jobseeker":
-      return "/user_dashboard";
-    default:
-      return "/login";
+    case "admin": return "/admin_dashboard";
+    case "company": return "/company_dashboard";
+    case "jobseeker": return "/user_dashboard";
+    default: return "/login";
   }
 };
 
 const NavBar = () => {
-  const { user, logOut } = useContext(AuthContext); // firebase user + logout
+  const { user, logOut } = useContext(AuthContext);
   const [role, setRole] = useState(null);
   const [avatarUrl, setAvatarUrl] = useState(null);
   const [displayName, setDisplayName] = useState("");
@@ -29,27 +25,20 @@ const NavBar = () => {
 
     const fetchRole = async (email) => {
       try {
-        const res = await fetch(
-          `${BACKEND_URL}/api/users/role?email=${encodeURIComponent(email)}`
-        );
+        const res = await fetch(`${BACKEND_URL}/api/users/role?email=${encodeURIComponent(email)}`);
         const data = await res.json();
         if (!ignore) {
           if (res.ok) setRole(data.role);
           else setRole(null);
         }
-      } catch {
-        if (!ignore) setRole(null);
-      }
+      } catch { if (!ignore) setRole(null); }
     };
 
     const fetchProfile = async (email) => {
       try {
-        const res = await fetch(
-          `${BACKEND_URL}/api/users/by-email?email=${encodeURIComponent(email)}`
-        );
+        const res = await fetch(`${BACKEND_URL}/api/users/by-email?email=${encodeURIComponent(email)}`);
         if (!res.ok) {
           if (!ignore) {
-            // fallback to Firebase fields only
             setAvatarUrl(user?.photoURL || null);
             setDisplayName(user?.displayName || "");
           }
@@ -59,13 +48,13 @@ const NavBar = () => {
         if (!ignore) {
           setAvatarUrl(
             (user?.photoURL && user.photoURL.trim()) ||
-              (data?.avatarUrl && data.avatarUrl.trim()) ||
-              null
+            (data?.avatarUrl && data.avatarUrl.trim()) ||
+            null
           );
           setDisplayName(
             (data?.fullName && String(data.fullName)) ||
-              user?.displayName ||
-              ""
+            user?.displayName ||
+            ""
           );
         }
       } catch {
@@ -85,15 +74,11 @@ const NavBar = () => {
       setDisplayName("");
     }
 
-    return () => {
-      ignore = true;
-    };
+    return () => { ignore = true; };
   }, [user?.email, user?.photoURL, user?.displayName]);
 
   const dashPath = getDashboardPath(role);
-  const avatarFallback =
-    "https://i.ibb.co/Kb0Zf1w/avatar-placeholder.png"; // nice neutral placeholder
-
+  const avatarFallback = "https://i.ibb.co/Kb0Zf1w/avatar-placeholder.png";
   const isJobseeker = (role || "").toLowerCase() === "jobseeker";
 
   return (
@@ -102,32 +87,17 @@ const NavBar = () => {
       <div className="navbar-start">
         <div className="dropdown">
           <div tabIndex={0} role="button" className="btn btn-ghost lg:hidden">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              className="h-5 w-5"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth="2"
-                d="M4 6h16M4 12h8m-8 6h16"
-              />
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h8m-8 6h16" />
             </svg>
           </div>
-          <ul
-            tabIndex={0}
-            className="menu menu-sm dropdown-content bg-base-100 rounded-box z-10 mt-3 w-52 p-2 shadow"
-          >
+          <ul tabIndex={0} className="menu menu-sm dropdown-content bg-base-100 rounded-box z-10 mt-3 w-52 p-2 shadow">
             <li><Link to="/">Home</Link></li>
             <li><Link to="/jobs">Jobs</Link></li>
             <li><Link to="/blogs">Blog</Link></li>
             <li><Link to="/companies">Companies</Link></li>
             <li><Link to="/about">About</Link></li>
             {user && <li><Link to={dashPath}>Dashboard</Link></li>}
-            {/* ✅ Only jobseekers see Resume Builder */}
             {user && isJobseeker && <li><Link to="/resume-builder">Resume Builder</Link></li>}
             {user && <li><Link to="/profile">Profile</Link></li>}
           </ul>
@@ -144,7 +114,6 @@ const NavBar = () => {
           <li><Link to="/companies">Companies</Link></li>
           <li><Link to="/about">About</Link></li>
           {user && <li><Link to={dashPath}>Dashboard</Link></li>}
-          {/* ✅ Only jobseekers see Resume Builder */}
           {user && isJobseeker && <li><Link to="/resume-builder">Resume Builder</Link></li>}
         </ul>
       </div>
@@ -158,19 +127,12 @@ const NavBar = () => {
           </>
         ) : (
           <>
-            {/* Avatar -> /profile */}
-            <Link
-              to="/profile"
-              className="btn btn-ghost btn-circle avatar"
-              title={displayName || user.email}
-            >
+            <Link to="/profile" className="btn btn-ghost btn-circle avatar" title={displayName || user.email}>
               <div className="w-10 rounded-full overflow-hidden ring ring-base-200">
                 <img
                   src={avatarUrl || avatarFallback}
                   alt="User avatar"
-                  onError={(e) => {
-                    e.currentTarget.src = avatarFallback;
-                  }}
+                  onError={(e) => { e.currentTarget.src = avatarFallback; }}
                 />
               </div>
             </Link>

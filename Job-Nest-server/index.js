@@ -1,3 +1,4 @@
+// index.js (server)
 const express = require('express');
 const cors = require('cors');
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
@@ -36,7 +37,7 @@ const upload = multer({
 
 // ---------- Middleware ----------
 app.use(cors({
-  origin: process.env.CORS_ORIGIN?.split(',') || '*', // e.g. http://localhost:5173
+  origin: process.env.CORS_ORIGIN?.split(',') || '*',
   credentials: true,
 }));
 app.use(express.json());
@@ -56,6 +57,26 @@ function hashPassword(password) {
       resolve({ salt, hash: derivedKey.toString('hex') });
     });
   });
+}
+
+// remove a local file if it exists
+function tryDeleteLocalFile(publicUrl) {
+  try {
+    // we only delete files served from our /uploads path
+    // e.g. http://localhost:3000/uploads/resumes/<file>
+    const uploadsPrefix = '/uploads/';
+    const idx = publicUrl.indexOf(uploadsPrefix);
+    if (idx === -1) return;
+
+    const relPath = publicUrl.substring(idx + 1); // remove leading slash
+    const absolute = path.join(process.cwd(), relPath);
+    if (fs.existsSync(absolute)) {
+      fs.unlinkSync(absolute);
+      console.log('Deleted old resume file:', absolute);
+    }
+  } catch (e) {
+    console.warn('Failed to delete old resume file:', e.message);
+  }
 }
 
 async function run() {
@@ -123,7 +144,7 @@ async function run() {
     }
   });
 
-  // List users (optional role filter + pagination)
+  // List users
   app.get('/api/users', async (req, res) => {
     try {
       const { role, page = 1, limit = 20 } = req.query;
@@ -158,9 +179,7 @@ async function run() {
     }
   });
 
-  // ⚠️ Place specific routes BEFORE /api/users/:id
-
-  // Get user role by email
+  // Specific-first: role lookup
   app.get('/api/users/role', async (req, res) => {
     try {
       const { email } = req.query;
@@ -177,7 +196,7 @@ async function run() {
     }
   });
 
-  // Get one user by email
+  // Get by email
   app.get('/api/users/by-email', async (req, res) => {
     try {
       const { email } = req.query;
@@ -194,7 +213,7 @@ async function run() {
     }
   });
 
-  // Get one user by id
+  // Get by id
   app.get('/api/users/:id', async (req, res) => {
     try {
       const { id } = req.params;
@@ -211,7 +230,7 @@ async function run() {
     }
   });
 
-  // Update user by id
+  // Update profile
   app.put('/api/users/:id', async (req, res) => {
     try {
       const { id } = req.params;
@@ -220,9 +239,7 @@ async function run() {
       const {
         fullName, mobileNumber, address, avatarUrl,
         resumeUrl, resumeFileUrl,
-        // jobseeker
         headline, skills,
-        // company
         companyName, website, foundedYear, companySize, description
       } = req.body || {};
 
@@ -257,7 +274,7 @@ async function run() {
     }
   });
 
-  // Upload resume
+  // Upload resume (PDF)
   app.post('/api/users/:id/resume', upload.single('resume'), async (req, res) => {
     try {
       const { id } = req.params;
@@ -285,7 +302,7 @@ async function run() {
     }
   });
 
-  // Download/redirect to resume
+  // Download (redirect) resume
   app.get('/api/users/:id/resume', async (req, res) => {
     try {
       const { id } = req.params;
@@ -298,6 +315,42 @@ async function run() {
       res.redirect(user.resumeFileUrl);
     } catch (e) {
       console.error(e);
+      res.status(500).send({ error: 'Internal server error' });
+    }
+  });
+
+  // NEW: Save/replace generated resume (JSON stored in DB)
+  app.put('/api/users/:id/resume-generated', async (req, res) => {
+    try {
+      const { id } = req.params;
+      if (!ObjectId.isValid(id)) return res.status(400).send({ error: 'Invalid id' });
+
+      const { generatedResume, replaceExisting } = req.body || {};
+      if (!generatedResume) return res.status(400).send({ error: 'No resume provided' });
+
+      const user = await usersCollection.findOne({ _id: new ObjectId(id) });
+      if (!user) return res.status(404).send({ error: 'User not found' });
+
+      const update = { generatedResume, updatedAt: new Date() };
+
+      if (replaceExisting) {
+        // delete old uploaded pdf if exists
+        if (user.resumeFileUrl) {
+          tryDeleteLocalFile(user.resumeFileUrl);
+        }
+        update.resumeFileUrl = null;
+        update.resumeUrl = null;
+      }
+
+      const result = await usersCollection.findOneAndUpdate(
+        { _id: new ObjectId(id) },
+        { $set: update },
+        { returnDocument: 'after', projection: { passwordHash: 0, passwordSalt: 0 } }
+      );
+
+      res.send({ message: 'Resume saved', user: result.value });
+    } catch (e) {
+      console.error('PUT /api/users/:id/resume-generated error:', e);
       res.status(500).send({ error: 'Internal server error' });
     }
   });

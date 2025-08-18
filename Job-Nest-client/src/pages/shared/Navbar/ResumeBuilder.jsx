@@ -1,3 +1,4 @@
+// src/pages/ResumeBuilder.jsx
 import React, { useContext, useEffect, useMemo, useRef, useState } from "react";
 import { AuthContext } from "../../../contexts/AuthContext/AuthContext";
 
@@ -10,13 +11,14 @@ const ResumeBuilder = () => {
   const [notice, setNotice] = useState("");
 
   const [userId, setUserId] = useState(null);
+  const [userProfile, setUserProfile] = useState(null);
 
-  // Minimal fields persisted to backend
+  // Minimal fields persisted to backend user profile (for convenience)
   const [headline, setHeadline] = useState("");
   const [skills, setSkills] = useState(""); // comma separated
   const [resumeUrl, setResumeUrl] = useState("");
 
-  // Client-only fields for resume generation (not persisted by backend yet)
+  // Rich resume structure (stored as generatedResume on backend)
   const [summary, setSummary] = useState("");
   const [experience, setExperience] = useState([{ role: "", company: "", period: "", details: "" }]);
   const [education, setEducation] = useState([{ degree: "", school: "", year: "" }]);
@@ -34,7 +36,6 @@ const ResumeBuilder = () => {
         return;
       }
       try {
-        // fetch user by email to get _id and any existing info
         const res = await fetch(
           `${BACKEND_URL}/api/users/by-email?email=${encodeURIComponent(user.email)}`
         );
@@ -42,10 +43,20 @@ const ResumeBuilder = () => {
           const data = await res.json();
           if (!ignore) {
             setUserId(data._id);
-            // Prefill from user profile if present
+            setUserProfile(data);
+            // prefill some fields
             setHeadline(data.headline || "");
             setSkills(Array.isArray(data.skills) ? data.skills.join(", ") : (data.skills || ""));
             setResumeUrl(data.resumeUrl || "");
+            // If they already have a generatedResume, you could prefill here too:
+            if (data.generatedResume) {
+              const g = data.generatedResume;
+              setSummary(g.summary || "");
+              setExperience(Array.isArray(g.experience) ? g.experience : [{ role: "", company: "", period: "", details: "" }]);
+              setEducation(Array.isArray(g.education) ? g.education : [{ degree: "", school: "", year: "" }]);
+              setProjects(Array.isArray(g.projects) ? g.projects : [{ name: "", link: "", about: "" }]);
+              setLinks(Array.isArray(g.links) ? g.links : [{ label: "Portfolio", url: "" }]);
+            }
           }
         }
       } catch (e) {
@@ -72,42 +83,76 @@ const ResumeBuilder = () => {
   const addProj = () => setProjects(prev => [...prev, { name: "", link: "", about: "" }]);
   const addLink = () => setLinks(prev => [...prev, { label: "", url: "" }]);
 
-  const onSaveProfile = async (e) => {
-    e.preventDefault();
+  const onSaveResume = async () => {
     if (!userId) {
       setNotice("Could not determine your user record. Make sure you are logged in.");
       return;
     }
+
+    // Decide whether to replace an existing resume
+    const hasExisting =
+      Boolean(userProfile?.resumeFileUrl) || Boolean(userProfile?.generatedResume);
+
+    let replaceExisting = false;
+    if (hasExisting) {
+      replaceExisting = window.confirm(
+        "A resume already exists in your profile. Do you want to replace it with the new one? (The old one will be deleted)"
+      );
+      if (!replaceExisting) {
+        setNotice("Kept existing resume. New resume was not saved.");
+        setTimeout(() => setNotice(""), 3000);
+        return;
+      }
+    }
+
     try {
       setSaving(true);
       setNotice("");
-      // Save only the fields your backend currently accepts
+
+      // 1) Save generated resume object
       const payload = {
-        headline,
-        skills: parsedSkills,
-        resumeUrl
+        generatedResume: {
+          headline,
+          skills: parsedSkills,
+          summary,
+          experience,
+          education,
+          projects,
+          links,
+        },
+        replaceExisting,
       };
-      const res = await fetch(`${BACKEND_URL}/api/users/${userId}`, {
+
+      const res = await fetch(`${BACKEND_URL}/api/users/${userId}/resume-generated`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      if (!res.ok) {
-        // Hide raw backend error text, but show success only when ok
-        throw new Error("Failed to save profile");
+      if (!res.ok) throw new Error("Failed to save resume");
+      const saved = await res.json();
+
+      // 2) Also store convenience fields on profile (headline/skills/resumeUrl) if you want:
+      const res2 = await fetch(`${BACKEND_URL}/api/users/${userId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ headline, skills: parsedSkills, resumeUrl }),
+      });
+      // Don't show raw backend errors; only show success when ok
+      if (!res2.ok) {
+        console.warn("Profile convenience update failed");
       }
-      setNotice("Updated Successfully");
+
+      setUserProfile(saved.user);
+      setNotice("Resume saved to profile successfully");
     } catch (e) {
       setNotice(e.message || "Failed to save");
     } finally {
       setSaving(false);
-      // auto-clear success after a bit
       setTimeout(() => setNotice(""), 3000);
     }
   };
 
   const printResume = () => {
-    // Open print dialog for the preview section
     if (!printableRef.current) return;
     window.print();
   };
@@ -125,18 +170,11 @@ const ResumeBuilder = () => {
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-3xl font-bold">Resume Builder</h1>
         <div className="flex gap-2">
-          <button
-            className="btn btn-outline"
-            type="button"
-            onClick={printResume}
-          >
+          <button className="btn btn-outline" type="button" onClick={printResume}>
             Print / Save as PDF
           </button>
-          <button
-            className={`btn btn-primary ${saving ? "btn-disabled" : ""}`}
-            onClick={onSaveProfile}
-          >
-            {saving ? "Saving..." : "Save to Profile"}
+          <button className={`btn btn-primary ${saving ? "btn-disabled" : ""}`} onClick={onSaveResume}>
+            {saving ? "Saving..." : "Save Resume"}
           </button>
         </div>
       </div>
@@ -197,9 +235,7 @@ const ResumeBuilder = () => {
           <div className="card bg-base-100 shadow p-4">
             <div className="flex items-center justify-between">
               <h2 className="text-xl font-semibold mb-3">Experience</h2>
-              <button type="button" className="btn btn-sm" onClick={addExp}>
-                + Add
-              </button>
+              <button type="button" className="btn btn-sm" onClick={addExp}>+ Add</button>
             </div>
             <div className="space-y-4">
               {experience.map((exp, i) => (
@@ -261,9 +297,7 @@ const ResumeBuilder = () => {
           <div className="card bg-base-100 shadow p-4">
             <div className="flex items-center justify-between">
               <h2 className="text-xl font-semibold mb-3">Education</h2>
-              <button type="button" className="btn btn-sm" onClick={addEdu}>
-                + Add
-              </button>
+              <button type="button" className="btn btn-sm" onClick={addEdu}>+ Add</button>
             </div>
             <div className="space-y-4">
               {education.map((ed, i) => (
@@ -313,9 +347,7 @@ const ResumeBuilder = () => {
           <div className="card bg-base-100 shadow p-4">
             <div className="flex items-center justify-between">
               <h2 className="text-xl font-semibold mb-3">Projects</h2>
-              <button type="button" className="btn btn-sm" onClick={addProj}>
-                + Add
-              </button>
+              <button type="button" className="btn btn-sm" onClick={addProj}>+ Add</button>
             </div>
             <div className="space-y-4">
               {projects.map((p, i) => (
@@ -365,9 +397,7 @@ const ResumeBuilder = () => {
           <div className="card bg-base-100 shadow p-4">
             <div className="flex items-center justify-between">
               <h2 className="text-xl font-semibold mb-3">Links</h2>
-              <button type="button" className="btn btn-sm" onClick={addLink}>
-                + Add
-              </button>
+              <button type="button" className="btn btn-sm" onClick={addLink}>+ Add</button>
             </div>
             <div className="space-y-4">
               {links.map((l, i) => (
