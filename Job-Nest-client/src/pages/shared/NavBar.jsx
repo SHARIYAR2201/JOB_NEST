@@ -94,6 +94,8 @@ const NavBar = () => {
   const avatarFallback =
     "https://i.ibb.co/Kb0Zf1w/avatar-placeholder.png"; // nice neutral placeholder
 
+  const isJobseeker = (role || "").toLowerCase() === "jobseeker";
+
   return (
     <div className="navbar bg-base-100 shadow-sm">
       {/* Left side */}
@@ -125,6 +127,8 @@ const NavBar = () => {
             <li><Link to="/companies">Companies</Link></li>
             <li><Link to="/about">About</Link></li>
             {user && <li><Link to={dashPath}>Dashboard</Link></li>}
+            {/* ✅ Only jobseekers see Resume Builder */}
+            {user && isJobseeker && <li><Link to="/resume-builder">Resume Builder</Link></li>}
             {user && <li><Link to="/profile">Profile</Link></li>}
           </ul>
         </div>
@@ -140,6 +144,8 @@ const NavBar = () => {
           <li><Link to="/companies">Companies</Link></li>
           <li><Link to="/about">About</Link></li>
           {user && <li><Link to={dashPath}>Dashboard</Link></li>}
+          {/* ✅ Only jobseekers see Resume Builder */}
+          {user && isJobseeker && <li><Link to="/resume-builder">Resume Builder</Link></li>}
         </ul>
       </div>
 
