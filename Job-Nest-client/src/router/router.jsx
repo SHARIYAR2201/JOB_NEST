@@ -9,7 +9,6 @@ import Login from "../pages/shared/Login.jsx";
 import Jobs from "../pages/shared/Navbar/Jobs/Jobs.jsx";
 import About from "../pages/shared/Navbar/About.jsx";
 import AdminDashboard from "../pages/shared/Dashboard/Admindashboard.jsx";
-
 import JobDetails from "../pages/shared/Navbar/Jobs/JobDetails.jsx";
 import Apply from "../pages/shared/Navbar/Jobs/Apply.jsx";
 import SearchJobs from "../pages/Home/SearchJobs.jsx";
