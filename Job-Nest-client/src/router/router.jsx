@@ -18,6 +18,7 @@ import UserProfile from "../pages/shared/JobSeeker/UserProfile.jsx";
 import Dashboard from "../pages/shared/Dashboard/Dashboard.jsx";
 import ResumeBuilder from "../pages/shared/Navbar/ResumeBuilder.jsx";
 import BlogDetails from "../pages/shared/Navbar/Blog/BlogDetail.jsx";
+import JobDetailsForm from "../pages/shared/Navbar/Jobs/JobDetailsForm.jsx";
 
 
 
@@ -57,6 +58,10 @@ const router = createBrowserRouter([
         {
           path: "/jobs/:id",
           Component: JobDetails
+        },
+        {
+        path: "/jobs/new",
+        Component:JobDetailsForm
         },
         {
           path: "/apply/:id",
